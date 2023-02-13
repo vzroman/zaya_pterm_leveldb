@@ -1,0 +1,18 @@
+{application, zaya_pterm_leveldb,
+ [{description, "Persistent term + LevelDB driver for zaya"},
+  {vsn, git},
+  {registered, []},
+  {applications,
+   [kernel,
+    stdlib,
+    zaya_pterm,
+    zaya_leveldb
+   ]},
+  {env,[]},
+  {modules, []},
+  {included_applications,[
+
+  ]},
+  {licenses, ["MIT"]},
+  {links, []}
+ ]}.
