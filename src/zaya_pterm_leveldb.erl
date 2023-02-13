@@ -46,37 +46,34 @@
   get_size/1
 ]).
 
--record(ref,{ets,leveldb}).
+-record(ref,{pterm,leveldb}).
 
 %%=================================================================
 %%	SERVICE
 %%=================================================================
 create( Params )->
-  EtsParams = type_params(ets,Params),
-  EtsRef = zaya_ets:create( EtsParams ),
+  PTermParams = type_params(pterm,Params),
+  PTermRef = zaya_pterm:create( PTermParams ),
   try
     LeveldbRef = zaya_leveldb:create( type_params(leveldb, Params) ),
-    #ref{ ets = EtsRef, leveldb = LeveldbRef }
+    #ref{ pterm = PTermRef, leveldb = LeveldbRef }
   catch
     _:E->
-      catch zaya_ets:close(EtsRef),
-      catch zaya_ets:remove(EtsParams),
+      catch zaya_pterm:close(PTermRef),
+      catch zaya_pterm:remove(PTermParams),
       throw(E)
   end.
 
 open( Params )->
   LeveldbRef = zaya_leveldb:open( type_params(leveldb, Params ) ),
-  EtsRef = zaya_ets:open( type_params(ets,Params) ),
+  PTermRef = zaya_pterm:open( type_params(pterm,Params) ),
 
-  zaya_leveldb:foldl(LeveldbRef,#{},fun(Rec,Acc)->
-    zaya_ets:write( EtsRef, [Rec] ),
-    Acc
-  end,[]),
+  zaya_pterm:write( PTermRef, zaya_leveldb:find( LeveldbRef, #{})),
 
-  #ref{ ets = EtsRef, leveldb = LeveldbRef }.
+  #ref{ pterm = PTermRef, leveldb = LeveldbRef }.
 
-close( #ref{ets = EtsRef, leveldb = LeveldbRef} )->
-  catch zaya_ets:close( EtsRef ),
+close( #ref{pterm = PTermRef, leveldb = LeveldbRef} )->
+  catch zaya_pterm:close( PTermRef ),
   zaya_leveldb:close( LeveldbRef ).
 
 remove( #{leveldb := Params} )->
@@ -85,54 +82,54 @@ remove( #{leveldb := Params} )->
 %%=================================================================
 %%	LOW_LEVEL
 %%=================================================================
-read(#ref{ets = EtsRef}, Keys)->
-  zaya_ets:read( EtsRef, Keys ).
+read(#ref{pterm = PTermRef}, Keys)->
+  zaya_pterm:read( PTermRef, Keys ).
 
-write(#ref{ets = EtsRef, leveldb = LeveldbRef}, KVs)->
+write(#ref{pterm = PTermRef, leveldb = LeveldbRef}, KVs)->
   zaya_leveldb:write( LeveldbRef, KVs ),
-  zaya_ets:write( EtsRef, KVs ).
+  zaya_pterm:write( PTermRef, KVs ).
 
-delete(#ref{ets = EtsRef, leveldb = LeveldbRef}, Keys)->
+delete(#ref{pterm = PTermRef, leveldb = LeveldbRef}, Keys)->
   zaya_leveldb:delete( LeveldbRef, Keys ),
-  zaya_ets:delete( EtsRef, Keys ).
+  zaya_pterm:delete( PTermRef, Keys ).
 
 %%=================================================================
 %%	ITERATOR
 %%=================================================================
-first( #ref{ets = EtsRef} )->
-  zaya_ets:first( EtsRef ).
+first( #ref{pterm = PTermRef} )->
+  zaya_pterm:first( PTermRef ).
 
-last( #ref{ets = EtsRef} )->
-  zaya_ets:last( EtsRef ).
+last( #ref{pterm = PTermRef} )->
+  zaya_pterm:last( PTermRef ).
 
-next( #ref{ets = EtsRef}, Key )->
-  zaya_ets:next( EtsRef, Key ).
+next( #ref{pterm = PTermRef}, Key )->
+  zaya_pterm:next( PTermRef, Key ).
 
-prev( #ref{ets = EtsRef}, Key )->
-  zaya_ets:prev( EtsRef, Key ).
+prev( #ref{pterm = PTermRef}, Key )->
+  zaya_pterm:prev( PTermRef, Key ).
 
 %%=================================================================
 %%	HIGH-LEVEL API
 %%=================================================================
 %----------------------FIND------------------------------------------
-find(#ref{ets = EtsRef}, Query)->
-  zaya_ets:find( EtsRef, Query ).
+find(#ref{pterm = PTermRef}, Query)->
+  zaya_pterm:find( PTermRef, Query ).
 
 %----------------------FOLD LEFT------------------------------------------
-foldl( #ref{ets = EtsRef}, Query, Fun, InAcc )->
-  zaya_ets:foldl( EtsRef, Query, Fun, InAcc ).
+foldl( #ref{pterm = PTermRef}, Query, Fun, InAcc )->
+  zaya_pterm:foldl( PTermRef, Query, Fun, InAcc ).
 
 %----------------------FOLD RIGHT------------------------------------------
-foldr( #ref{ets = EtsRef}, Query, Fun, InAcc )->
-  zaya_ets:foldr( EtsRef, Query, Fun, InAcc ).
+foldr( #ref{pterm = PTermRef}, Query, Fun, InAcc )->
+  zaya_pterm:foldr( PTermRef, Query, Fun, InAcc ).
 
 %%=================================================================
 %%	INFO
 %%=================================================================
-get_size( #ref{ets = EtsRef})->
-  zaya_ets:get_size( EtsRef ).
+get_size( #ref{pterm = PTermRef})->
+  zaya_pterm:get_size( PTermRef ).
 
 type_params( Type, Params )->
   TypeParams = maps:with([Type],Params),
-  OtherParams = maps:without([ets,leveldb], Params),
+  OtherParams = maps:without([pterm,leveldb], Params),
   maps:merge( OtherParams, TypeParams ).
