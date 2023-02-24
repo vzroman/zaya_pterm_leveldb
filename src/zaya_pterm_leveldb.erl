@@ -76,8 +76,8 @@ close( #ref{pterm = PTermRef, leveldb = LeveldbRef} )->
   catch zaya_pterm:close( PTermRef ),
   zaya_leveldb:close( LeveldbRef ).
 
-remove( #{leveldb := Params} )->
-  zaya_leveldb:remove( Params ).
+remove( Params )->
+  zaya_leveldb:remove( type_params(leveldb, Params) ).
 
 %%=================================================================
 %%	LOW_LEVEL
