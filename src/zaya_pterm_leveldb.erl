@@ -53,7 +53,10 @@
 -export([
   transaction/1,
   t_write/3,
+  t_delete/3,
   commit/2,
+  commit1/2,
+  commit2/2,
   rollback/2
 ]).
 
@@ -153,26 +156,39 @@ dump_batch(Ref, KVs)->
 %%=================================================================
 %%	TRANSACTION API
 %%=================================================================
-transaction( _Ref )->
-  ets:new(?MODULE,[
-    private,
-    ordered_set,
-    {read_concurrency, true},
-    {write_concurrency, auto}
-  ]).
+transaction( #ref{ pterm = PTermRef, leveldb = LeveldbRef } )->
+  PTermTRef = zaya_pterm:transaction( PTermRef ),
+  LeveldbTRef = zaya_leveldb:transaction( LeveldbRef ),
+  { PTermTRef, LeveldbTRef }.
 
-t_write( _Ref, TRef, KVs )->
-  ets:insert( TRef, KVs ),
+t_write( #ref{ pterm = PTermRef, leveldb = LeveldbRef }, {PTermTRef, LeveldbTRef}, KVs )->
+  zaya_leveldb:t_write(LeveldbRef, LeveldbTRef, KVs ),
+  zaya_pterm:t_write( PTermRef, PTermTRef, KVs ),
   ok.
 
-commit(#ref{ pterm  = PTermRef, leveldb = LeveldbRef }, TRef)->
-  KVs = ets:tab2list( TRef ),
-  zaya_leveldb:write( LeveldbRef, KVs ),
-  zaya_pterm:write( PTermRef, KVs ),
+t_delete( #ref{ pterm = PTermRef, leveldb = LeveldbRef }, {PTermTRef, LeveldbTRef}, Keys )->
+  zaya_leveldb:t_delete(LeveldbRef, LeveldbTRef, Keys ),
+  zaya_pterm:t_delete( PTermRef, PTermTRef, Keys ),
   ok.
 
-rollback(_Ref, TRef )->
-  ets:delete( TRef ),
+commit(#ref{ pterm = PTermRef, leveldb = LeveldbRef }, {PTermTRef, LeveldbTRef})->
+  zaya_leveldb:commit( LeveldbRef, LeveldbTRef ),
+  zaya_pterm:commit( PTermRef, PTermTRef ),
+  ok.
+
+commit1(#ref{ pterm = PTermRef, leveldb = LeveldbRef }, {PTermTRef, LeveldbTRef})->
+  zaya_leveldb:commit1( LeveldbRef, LeveldbTRef ),
+  zaya_pterm:commit1( PTermRef, PTermTRef ),
+  ok.
+
+commit2(#ref{ pterm = PTermRef, leveldb = LeveldbRef }, {PTermTRef, LeveldbTRef})->
+  zaya_leveldb:commit2( LeveldbRef, LeveldbTRef ),
+  zaya_pterm:commit2( PTermRef, PTermTRef ),
+  ok.
+
+rollback(#ref{pterm = PTermRef, leveldb = LeveldbRef }, {PTermTRef, LeveldbTRef})->
+  zaya_leveldb:rollback( LeveldbRef, LeveldbTRef ),
+  zaya_pterm:rollback(PTermRef, PTermTRef ),
   ok.
 
 %%=================================================================
