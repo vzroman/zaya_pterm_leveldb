@@ -48,6 +48,16 @@
 ]).
 
 %%=================================================================
+%%	TRANSACTION API
+%%=================================================================
+-export([
+  transaction/1,
+  t_write/3,
+  commit/2,
+  rollback/2
+]).
+
+%%=================================================================
 %%	INFO API
 %%=================================================================
 -export([
@@ -139,6 +149,31 @@ copy(Ref, Fun, InAcc)->
 
 dump_batch(Ref, KVs)->
   write(Ref, KVs).
+
+%%=================================================================
+%%	TRANSACTION API
+%%=================================================================
+transaction( _Ref )->
+  ets:new(?MODULE,[
+    private,
+    ordered_set,
+    {read_concurrency, true},
+    {write_concurrency, auto}
+  ]).
+
+t_write( _Ref, TRef, KVs )->
+  ets:insert( TRef, KVs ),
+  ok.
+
+commit(#ref{ pterm  = PTermRef, leveldb = LeveldbRef }, TRef)->
+  KVs = ets:tab2list( TRef ),
+  zaya_leveldb:write( LeveldbRef, KVs ),
+  zaya_pterm:write( PTermRef, KVs ),
+  ok.
+
+rollback(_Ref, TRef )->
+  ets:delete( TRef ),
+  ok.
 
 %%=================================================================
 %%	INFO
