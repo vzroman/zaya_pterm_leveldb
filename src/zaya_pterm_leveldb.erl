@@ -51,11 +51,8 @@
 %%	TRANSACTION API
 %%=================================================================
 -export([
-  transaction/1,
-  t_write/3,
-  t_delete/3,
-  commit/2,
-  commit1/2,
+  commit/3,
+  commit1/3,
   commit2/2,
   rollback/2
 ]).
@@ -156,29 +153,14 @@ dump_batch(Ref, KVs)->
 %%=================================================================
 %%	TRANSACTION API
 %%=================================================================
-transaction( #ref{ pterm = PTermRef, leveldb = LeveldbRef } )->
-  PTermTRef = zaya_pterm:transaction( PTermRef ),
-  LeveldbTRef = zaya_leveldb:transaction( LeveldbRef ),
-  { PTermTRef, LeveldbTRef }.
-
-t_write( #ref{ pterm = PTermRef, leveldb = LeveldbRef }, {PTermTRef, LeveldbTRef}, KVs )->
-  zaya_leveldb:t_write(LeveldbRef, LeveldbTRef, KVs ),
-  zaya_pterm:t_write( PTermRef, PTermTRef, KVs ),
+commit(#ref{ pterm = PTermRef, leveldb = LeveldbRef }, Write, Delete)->
+  zaya_leveldb:commit( LeveldbRef, Write, Delete ),
+  zaya_pterm:commit( PTermRef, Write, Delete ),
   ok.
 
-t_delete( #ref{ pterm = PTermRef, leveldb = LeveldbRef }, {PTermTRef, LeveldbTRef}, Keys )->
-  zaya_leveldb:t_delete(LeveldbRef, LeveldbTRef, Keys ),
-  zaya_pterm:t_delete( PTermRef, PTermTRef, Keys ),
-  ok.
-
-commit(#ref{ pterm = PTermRef, leveldb = LeveldbRef }, {PTermTRef, LeveldbTRef})->
-  zaya_leveldb:commit( LeveldbRef, LeveldbTRef ),
-  zaya_pterm:commit( PTermRef, PTermTRef ),
-  ok.
-
-commit1(#ref{ pterm = PTermRef, leveldb = LeveldbRef }, {PTermTRef, LeveldbTRef})->
-  zaya_leveldb:commit1( LeveldbRef, LeveldbTRef ),
-  zaya_pterm:commit1( PTermRef, PTermTRef ),
+commit1(#ref{ pterm = PTermRef, leveldb = LeveldbRef }, Write, Delete)->
+  zaya_leveldb:commit1( LeveldbRef, Write, Delete ),
+  zaya_pterm:commit1( PTermRef, Write, Delete ),
   ok.
 
 commit2(#ref{ pterm = PTermRef, leveldb = LeveldbRef }, {PTermTRef, LeveldbTRef})->
