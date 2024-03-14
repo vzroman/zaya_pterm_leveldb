@@ -159,9 +159,9 @@ commit(#ref{ pterm = PTermRef, leveldb = LeveldbRef }, Write, Delete)->
   ok.
 
 commit1(#ref{ pterm = PTermRef, leveldb = LeveldbRef }, Write, Delete)->
-  zaya_leveldb:commit1( LeveldbRef, Write, Delete ),
-  zaya_pterm:commit1( PTermRef, Write, Delete ),
-  ok.
+  LeveldbTRef = zaya_leveldb:commit1( LeveldbRef, Write, Delete ),
+  PTermTRef = zaya_pterm:commit1( PTermRef, Write, Delete ),
+  {PTermTRef, LeveldbTRef}.
 
 commit2(#ref{ pterm = PTermRef, leveldb = LeveldbRef }, {PTermTRef, LeveldbTRef})->
   zaya_leveldb:commit2( LeveldbRef, LeveldbTRef ),
