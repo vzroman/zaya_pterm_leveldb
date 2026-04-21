@@ -52,9 +52,8 @@
 %%=================================================================
 -export([
   commit/3,
-  commit1/3,
-  commit2/2,
-  rollback/2
+  prepare_rollback/3,
+  is_persistent/0
 ]).
 
 %%=================================================================
@@ -158,20 +157,30 @@ commit(#ref{ pterm = PTermRef, leveldb = LeveldbRef }, Write, Delete)->
   zaya_pterm:commit( PTermRef, Write, Delete ),
   ok.
 
-commit1(#ref{ pterm = PTermRef, leveldb = LeveldbRef }, Write, Delete)->
-  LeveldbTRef = zaya_leveldb:commit1( LeveldbRef, Write, Delete ),
-  PTermTRef = zaya_pterm:commit1( PTermRef, Write, Delete ),
-  {PTermTRef, LeveldbTRef}.
+prepare_rollback(#ref{pterm = PTermRef}, Write, Delete)->
+  prepare_rollback_from_read(fun(Keys)-> zaya_pterm:read(PTermRef, Keys) end, Write, Delete).
 
-commit2(#ref{ pterm = PTermRef, leveldb = LeveldbRef }, {PTermTRef, LeveldbTRef})->
-  zaya_leveldb:commit2( LeveldbRef, LeveldbTRef ),
-  zaya_pterm:commit2( PTermRef, PTermTRef ),
-  ok.
+is_persistent()->
+  true.
 
-rollback(#ref{pterm = PTermRef, leveldb = LeveldbRef }, {PTermTRef, LeveldbTRef})->
-  zaya_leveldb:rollback( LeveldbRef, LeveldbTRef ),
-  zaya_pterm:rollback(PTermRef, PTermTRef ),
-  ok.
+prepare_rollback_from_read(ReadFun, Write, Delete)->
+  WriteMap = maps:from_list(Write),
+  WriteKeys = maps:keys(WriteMap),
+  CurrentForWrites = maps:from_list(ReadFun(WriteKeys)),
+  CurrentForDeletes = maps:from_list(ReadFun(Delete)),
+  RestoreWrites =
+    maps:fold(
+      fun(Key, Existing, Acc)->
+        case maps:get(Key, WriteMap) of
+          Existing -> Acc;
+          _ -> Acc#{Key => Existing}
+        end
+      end,
+      CurrentForDeletes,
+      CurrentForWrites
+    ),
+  DeleteBack = [Key || Key <- WriteKeys, not maps:is_key(Key, CurrentForWrites)],
+  {maps:to_list(RestoreWrites), DeleteBack}.
 
 %%=================================================================
 %%	INFO
