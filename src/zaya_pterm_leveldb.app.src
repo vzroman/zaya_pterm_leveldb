@@ -6,7 +6,8 @@
    [kernel,
     stdlib,
     zaya_pterm,
-    zaya_leveldb
+    zaya_leveldb,
+    zaya_pool
    ]},
   {env,[]},
   {modules, []},
