@@ -170,12 +170,7 @@ foldl(#ref{pterm = PTermRef}, Query, Fun, InAcc)->
   zaya_pterm:foldl(PTermRef, Query, Fun, InAcc).
 
 foldr(#ref{pterm = PTermRef}, Query, Fun, InAcc)->
-  Records = lists:reverse(zaya_pterm:find(PTermRef, foldr_query(Query))),
-  try
-    lists:foldl(fun(Rec, Acc)-> Fun(Rec, Acc) end, InAcc, Records)
-  catch
-    {stop, Acc}-> Acc
-  end.
+  zaya_pterm:foldr(PTermRef, Query, Fun, InAcc).
 
 %%=================================================================
 %%	COPY
@@ -276,19 +271,6 @@ pipe(Ref, [Step | Rest])->
   end;
 pipe(Ref, [])->
   {ok, Ref}.
-
-foldr_query(Query)->
-  Query0 = maps:without([start, stop, limit], Query),
-  case {maps:find(start, Query), maps:find(stop, Query)} of
-    {{ok, Start}, {ok, Stop}}->
-      Query0#{start => Stop, stop => Start};
-    {{ok, Start}, error}->
-      Query0#{stop => Start};
-    {error, {ok, Stop}}->
-      Query0#{start => Stop};
-    {error, error}->
-      Query0
-  end.
 
 type_params(Type, Params)->
   TypeParams = maps:with([Type], Params),
