@@ -1,4 +1,3 @@
-
 -module(zaya_pterm_leveldb).
 
 %%=================================================================
@@ -52,9 +51,15 @@
 %%=================================================================
 -export([
   commit/3,
-  commit1/3,
-  commit2/2,
-  rollback/2
+  prepare_rollback/3,
+  is_persistent/0
+]).
+
+%%=================================================================
+%%	POOL API
+%%=================================================================
+-export([
+  pool_batch/2
 ]).
 
 %%=================================================================
@@ -64,82 +69,108 @@
   get_size/1
 ]).
 
--record(ref,{pterm,leveldb}).
+-record(ref, {
+  pterm,
+  leveldb,
+  pool
+}).
+
+-define(LOAD_BATCH_SIZE, 100000).
 
 %%=================================================================
 %%	SERVICE
 %%=================================================================
-create( Params )->
-  PTermParams = type_params(pterm,Params),
-  PTermRef = zaya_pterm:create( PTermParams ),
-  try
-    LeveldbRef = zaya_leveldb:create( type_params(leveldb, Params) ),
-    #ref{ pterm = PTermRef, leveldb = LeveldbRef }
-  catch
-    _:E->
-      catch zaya_pterm:close(PTermRef),
-      catch zaya_pterm:remove(PTermParams),
-      throw(E)
+create(Params)->
+  case pipe(#ref{}, [
+    fun(Ref)-> Ref#ref{pterm = zaya_pterm:create(type_params(pterm, Params))} end,
+    fun(Ref)-> Ref#ref{leveldb = zaya_leveldb:create(type_params(leveldb, Params))} end,
+    fun(#ref{pterm = PTermRef, leveldb = LeveldbRef} = Ref)->
+      Ref#ref{pool = open_pool(PTermRef, LeveldbRef, Params)}
+    end
+  ]) of
+    {ok, Ref}-> Ref;
+    {error, Error, Ref}->
+      catch close(Ref),
+      catch remove(Params),
+      throw(Error)
   end.
 
-open( Params )->
-  LeveldbRef = zaya_leveldb:open( type_params(leveldb, Params ) ),
-  PTermRef = zaya_pterm:open( type_params(pterm,Params) ),
+open(Params)->
+  case pipe(#ref{}, [
+    fun(Ref)-> Ref#ref{leveldb = zaya_leveldb:open(type_params(leveldb, Params))} end,
+    fun(Ref)-> Ref#ref{pterm = zaya_pterm:open(type_params(pterm, Params))} end,
+    fun(#ref{pterm = PTermRef, leveldb = LeveldbRef} = Ref)->
+      Ref#ref{pool = open_pool(PTermRef, LeveldbRef, Params)}
+    end,
+    fun(#ref{pterm = PTermRef, leveldb = LeveldbRef} = Ref)->
+      load_data(LeveldbRef, PTermRef),
+      Ref
+    end
+  ]) of
+    {ok, Ref}-> Ref;
+    {error, Error, Ref}->
+      catch close(Ref),
+      throw(Error)
+  end.
 
-  zaya_pterm:write( PTermRef, zaya_leveldb:find( LeveldbRef, #{})),
+close(#ref{
+  pterm = PTermRef,
+  leveldb = LeveldbRef,
+  pool = Pool
+})->
+  catch close_pool(Pool),
+  catch zaya_pterm:close(PTermRef),
+  catch zaya_leveldb:close(LeveldbRef),
+  ok.
 
-  #ref{ pterm = PTermRef, leveldb = LeveldbRef }.
-
-close( #ref{pterm = PTermRef, leveldb = LeveldbRef} )->
-  catch zaya_pterm:close( PTermRef ),
-  zaya_leveldb:close( LeveldbRef ).
-
-remove( Params )->
-  zaya_leveldb:remove( type_params(leveldb, Params) ).
+remove(Params)->
+  zaya_leveldb:remove(type_params(leveldb, Params)),
+  ok.
 
 %%=================================================================
 %%	LOW_LEVEL
 %%=================================================================
 read(#ref{pterm = PTermRef}, Keys)->
-  zaya_pterm:read( PTermRef, Keys ).
+  zaya_pterm:read(PTermRef, Keys).
 
-write(#ref{pterm = PTermRef, leveldb = LeveldbRef}, KVs)->
-  zaya_leveldb:write( LeveldbRef, KVs ),
-  zaya_pterm:write( PTermRef, KVs ).
+write(#ref{pterm = PTermRef, leveldb = LeveldbRef, pool = disabled}, KVs)->
+  zaya_leveldb:write(LeveldbRef, KVs),
+  zaya_pterm:write(PTermRef, KVs);
+write(#ref{pool = Pool}, KVs)->
+  zaya_pool:call(Pool, [{write, KVs}]).
 
-delete(#ref{pterm = PTermRef, leveldb = LeveldbRef}, Keys)->
-  zaya_leveldb:delete( LeveldbRef, Keys ),
-  zaya_pterm:delete( PTermRef, Keys ).
+delete(#ref{pterm = PTermRef, leveldb = LeveldbRef, pool = disabled}, Keys)->
+  zaya_leveldb:delete(LeveldbRef, Keys),
+  zaya_pterm:delete(PTermRef, Keys);
+delete(#ref{pool = Pool}, Keys)->
+  zaya_pool:call(Pool, [{delete, Keys}]).
 
 %%=================================================================
 %%	ITERATOR
 %%=================================================================
-first( #ref{pterm = PTermRef} )->
-  zaya_pterm:first( PTermRef ).
+first(#ref{pterm = PTermRef})->
+  zaya_pterm:first(PTermRef).
 
-last( #ref{pterm = PTermRef} )->
-  zaya_pterm:last( PTermRef ).
+last(#ref{pterm = PTermRef})->
+  zaya_pterm:last(PTermRef).
 
-next( #ref{pterm = PTermRef}, Key )->
-  zaya_pterm:next( PTermRef, Key ).
+next(#ref{pterm = PTermRef}, Key)->
+  zaya_pterm:next(PTermRef, Key).
 
-prev( #ref{pterm = PTermRef}, Key )->
-  zaya_pterm:prev( PTermRef, Key ).
+prev(#ref{pterm = PTermRef}, Key)->
+  zaya_pterm:prev(PTermRef, Key).
 
 %%=================================================================
 %%	HIGH-LEVEL API
 %%=================================================================
-%----------------------FIND------------------------------------------
 find(#ref{pterm = PTermRef}, Query)->
-  zaya_pterm:find( PTermRef, Query ).
+  zaya_pterm:find(PTermRef, Query).
 
-%----------------------FOLD LEFT------------------------------------------
-foldl( #ref{pterm = PTermRef}, Query, Fun, InAcc )->
-  zaya_pterm:foldl( PTermRef, Query, Fun, InAcc ).
+foldl(#ref{pterm = PTermRef}, Query, Fun, InAcc)->
+  zaya_pterm:foldl(PTermRef, Query, Fun, InAcc).
 
-%----------------------FOLD RIGHT------------------------------------------
-foldr( #ref{pterm = PTermRef}, Query, Fun, InAcc )->
-  zaya_pterm:foldr( PTermRef, Query, Fun, InAcc ).
+foldr(#ref{pterm = PTermRef}, Query, Fun, InAcc)->
+  zaya_pterm:foldr(PTermRef, Query, Fun, InAcc).
 
 %%=================================================================
 %%	COPY
@@ -147,39 +178,101 @@ foldr( #ref{pterm = PTermRef}, Query, Fun, InAcc )->
 copy(Ref, Fun, InAcc)->
   foldl(Ref, #{}, Fun, InAcc).
 
-dump_batch(Ref, KVs)->
-  write(Ref, KVs).
+dump_batch(#ref{pterm = PTermRef, leveldb = LeveldbRef}, KVs)->
+  zaya_leveldb:write(LeveldbRef, KVs),
+  zaya_pterm:write(PTermRef, KVs).
 
 %%=================================================================
 %%	TRANSACTION API
 %%=================================================================
-commit(#ref{ pterm = PTermRef, leveldb = LeveldbRef }, Write, Delete)->
-  zaya_leveldb:commit( LeveldbRef, Write, Delete ),
-  zaya_pterm:commit( PTermRef, Write, Delete ),
-  ok.
+commit(#ref{pterm = PTermRef, leveldb = LeveldbRef, pool = disabled}, Write, Delete)->
+  zaya_leveldb:commit(LeveldbRef, Write, Delete),
+  zaya_pterm:commit(PTermRef, Write, Delete),
+  ok;
+commit(#ref{pool = Pool}, Write, Delete)->
+  zaya_pool:call(Pool, [{write, Write}, {delete, Delete}]).
 
-commit1(#ref{ pterm = PTermRef, leveldb = LeveldbRef }, Write, Delete)->
-  LeveldbTRef = zaya_leveldb:commit1( LeveldbRef, Write, Delete ),
-  PTermTRef = zaya_pterm:commit1( PTermRef, Write, Delete ),
-  {PTermTRef, LeveldbTRef}.
+prepare_rollback(#ref{pterm = PTermRef}, Write, Delete)->
+  zaya_pterm:prepare_rollback(PTermRef, Write, Delete).
 
-commit2(#ref{ pterm = PTermRef, leveldb = LeveldbRef }, {PTermTRef, LeveldbTRef})->
-  zaya_leveldb:commit2( LeveldbRef, LeveldbTRef ),
-  zaya_pterm:commit2( PTermRef, PTermTRef ),
-  ok.
+is_persistent()->
+  true.
 
-rollback(#ref{pterm = PTermRef, leveldb = LeveldbRef }, {PTermTRef, LeveldbTRef})->
-  zaya_leveldb:rollback( LeveldbRef, LeveldbTRef ),
-  zaya_pterm:rollback(PTermRef, PTermTRef ),
+%%=================================================================
+%%	POOL API
+%%=================================================================
+pool_batch({PTermRef, LeveldbRef}, Requests)->
+  do_pool_batch(Requests, PTermRef, LeveldbRef, []).
+
+do_pool_batch([{write, KVs} | Rest], PTermRef, LeveldbRef, Writes)->
+  do_pool_batch(Rest, PTermRef, LeveldbRef, [KVs | Writes]);
+do_pool_batch(Requests, PTermRef, LeveldbRef, [_ | _] = Writes)->
+  KVs = lists:append(lists:reverse(Writes)),
+  zaya_leveldb:write(LeveldbRef, KVs),
+  zaya_pterm:write(PTermRef, KVs),
+  do_pool_batch(Requests, PTermRef, LeveldbRef, []);
+do_pool_batch([{delete, Keys} | Rest], PTermRef, LeveldbRef, Writes)->
+  zaya_leveldb:delete(LeveldbRef, Keys),
+  zaya_pterm:delete(PTermRef, Keys),
+  do_pool_batch(Rest, PTermRef, LeveldbRef, Writes);
+do_pool_batch([], _PTermRef, _LeveldbRef, [])->
   ok.
 
 %%=================================================================
 %%	INFO
 %%=================================================================
-get_size( #ref{pterm = PTermRef})->
-  zaya_pterm:get_size( PTermRef ).
+get_size(#ref{pterm = PTermRef})->
+  zaya_pterm:get_size(PTermRef).
 
-type_params( Type, Params )->
-  TypeParams = maps:with([Type],Params),
-  OtherParams = maps:without([pterm,leveldb], Params),
-  maps:merge( OtherParams, TypeParams ).
+%%=================================================================
+%%	UTILITIES
+%%=================================================================
+load_data(LeveldbRef, PTermRef)->
+  Tail = zaya_leveldb:foldl(LeveldbRef, #{}, fun(Rec, {Batch, Count})->
+    Batch1 = [Rec | Batch],
+    case Count + 1 of
+      ?LOAD_BATCH_SIZE ->
+        zaya_pterm:dump_batch(PTermRef, Batch1),
+        {[], 0};
+      Count1 ->
+        {Batch1, Count1}
+    end
+  end, {[], 0}),
+  case Tail of
+    {[_ | _] = Rest, _} -> zaya_pterm:dump_batch(PTermRef, Rest);
+    _ -> ok
+  end.
+
+open_pool(_PTermRef, _LeveldbRef, #{pool := disabled})->
+  disabled;
+open_pool(PTermRef, LeveldbRef, Params) when is_map(Params)->
+  {ok, Pool} = zaya_pool:start_link(pool_params(PTermRef, LeveldbRef, Params)),
+  Pool.
+
+close_pool(disabled)->
+  ok;
+close_pool(Pool)->
+  zaya_pool:stop(Pool).
+
+pool_params(PTermRef, LeveldbRef, Params)->
+  maps:merge(
+    maps:get(pool, Params, #{}),
+    #{
+      ref => {PTermRef, LeveldbRef},
+      module => ?MODULE
+    }
+  ).
+
+pipe(Ref, [Step | Rest])->
+  try Step(Ref) of
+    Ref1 -> pipe(Ref1, Rest)
+  catch _:Error ->
+    {error, Error, Ref}
+  end;
+pipe(Ref, [])->
+  {ok, Ref}.
+
+type_params(Type, Params)->
+  TypeParams = maps:with([Type], Params),
+  OtherParams = maps:without([pterm, leveldb, pool], Params),
+  maps:merge(OtherParams#{pool => disabled}, TypeParams).
